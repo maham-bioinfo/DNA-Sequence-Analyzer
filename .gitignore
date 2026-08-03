@@ -1,0 +1,4 @@
+venv64/
+__pycache__/
+*.pyc
+temp.fasta
