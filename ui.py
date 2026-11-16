@@ -1,6 +1,9 @@
 import streamlit as st
 import plotly.express as px
 import pandas as pd
+import matplotlib.pyplot as plt
+import plotly.graph_objects as go
+
 
 from modules.analysis import (
     sequence_length,
@@ -15,11 +18,17 @@ from modules.analysis import (
     restriction_sites,
     amino_acid_frequency,
     colored_sequence,
-    codon_frequency
+    codon_frequency,
+    gc_sliding_window,
+    dna_quality_score,
+    genome_features,
+    genome_map_data,
+    genome_dataframe,
+    pairwise_alignment
 )
 def analyze_sequence(dna, motif, unique_key=""):
 
-    tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8, tab9 = st.tabs([
+    tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8, tab9, tab10, tab11, tab12 = st.tabs([
         "📊 Basic",
         "🧬 RNA",
         "🧬 ORF",
@@ -28,7 +37,10 @@ def analyze_sequence(dna, motif, unique_key=""):
         "🧪 Amino",
         "🎨 DNA",
         "🧬 Codons",
-        "📄 Report"
+        "📄 Report",
+        "📈 GC Graph",
+        "⭐ Quality",
+        "🗺 Genome Browser"
     ])
 
     # ==========================
@@ -299,3 +311,404 @@ ORF
             mime="text/plain",
             key=f"report_{unique_key}_{len(dna)}"
         )
+    # ==========================
+    # TAB 10
+    # ==========================
+
+    with tab10:
+
+        st.subheader("📈 GC Content Sliding Window")
+
+        window = st.slider(
+            "Window Size",
+            20,
+            500,
+            100,
+            key=f"window_{unique_key}"
+        )
+
+        positions, gc = gc_sliding_window(
+            dna,
+            window
+        )
+
+        gc_df = pd.DataFrame({
+            "Position": positions,
+            "GC %": gc
+        })
+
+        fig = px.line(
+            gc_df,
+            x="Position",
+            y="GC %",
+            title="GC Content Across Genome"
+        )
+
+        st.plotly_chart(
+            fig,
+            width="stretch",
+            key=f"gc_graph_{unique_key}"
+        )
+    # ==========================
+    # TAB 11
+    # ==========================
+
+    with tab11:
+
+        st.subheader("⭐ DNA Quality Score")
+
+        score, report = dna_quality_score(dna)
+
+        st.metric(
+            "Overall Score",
+            f"{score}/100"
+        )
+
+        progress = score / 100
+
+        st.progress(progress)
+
+        st.divider()
+
+        for text, status in report:
+
+            if status:
+                st.success(text)
+            else:
+                st.warning(text)
+
+    # ==========================
+    # TAB 12
+    # ==========================
+
+    with tab12:
+
+        st.subheader("🗺 Interactive Genome Browser")
+
+        df = genome_dataframe(dna, motif)
+
+        if df.empty:
+
+            st.info("No genomic features found.")
+
+        else:
+
+            show_labels = st.toggle(
+                "Show Labels",
+                value=True,
+                key=f"show_labels_{unique_key}"
+            )
+
+            fig = go.Figure()
+
+            color_map = {
+
+                "ORF":"green",
+
+                "Motif":"orange",
+
+                "EcoRI":"red",
+
+                "BamHI":"blue",
+
+                "HindIII":"purple",
+
+                "NotI":"brown"
+
+            }
+
+            marker_map = {
+
+                "ORF":"square",
+
+                "Motif":"diamond",
+
+                "EcoRI":"triangle-up",
+
+                "BamHI":"triangle-down",
+
+                "HindIII":"circle",
+
+                "NotI":"x"
+
+            }
+            for _, row in df.iterrows():
+
+                feature = row["Feature"]
+
+                color = color_map.get(feature, "black")
+
+                symbol = marker_map.get(feature, "circle")
+
+                if feature == "ORF":
+
+                    fig.add_shape(
+
+                        type="rect",
+
+                        x0=row["Start"],
+
+                        x1=row["End"],
+
+                        y0=row["Track"]-0.25,
+
+                        y1=row["Track"]+0.25,
+
+                        line=dict(color=color),
+
+                        fillcolor=color,
+
+                        opacity=0.75
+
+                    )
+
+                    if show_labels:
+
+                        fig.add_annotation(
+
+                            x=(row["Start"]+row["End"])/2,
+
+                            y=row["Track"]+0.45,
+
+                            text="ORF",
+
+                            showarrow=False,
+
+                            font=dict(size=10,color="green")
+
+                        )
+
+                else:
+
+                    fig.add_trace(
+
+                        go.Scatter(
+
+                            x=[row["Start"]],
+
+                            y=[row["Track"]],
+
+                            mode="markers+text" if show_labels else "markers",
+
+                            text=[feature] if show_labels else None,
+
+                            textposition="top center",
+
+                            marker=dict(
+
+                                size=12,
+
+                                color=color,
+
+                                symbol=symbol
+
+                            ),
+
+                            hovertemplate=(
+
+                                f"<b>{feature}</b><br>"
+
+                                f"Start : {row['Start']}<br>"
+
+                                f"End : {row['End']}<extra></extra>"
+
+                            ),
+
+                            showlegend=False
+
+                        )
+
+                    )
+            fig.update_layout(
+
+                title="Interactive Genome Browser",
+
+                template="plotly_white",
+
+                height=550,
+
+                hovermode="closest",
+
+                dragmode="pan",
+
+                plot_bgcolor="white",
+
+                paper_bgcolor="white",
+
+                margin=dict(
+
+                    l=70,
+
+                    r=40,
+
+                    t=70,
+
+                    b=60
+
+                )
+
+            )
+
+            fig.update_xaxes(
+
+                title="Genome Position (bp)",
+
+                showgrid=True,
+
+                rangeslider=dict(
+
+                    visible=True
+
+                ),
+
+                zeroline=False
+
+            )
+
+            fig.update_yaxes(
+
+                title="Genome Features",
+
+                tickmode="array",
+
+                tickvals=[1,2,3,4,5,6],
+
+                ticktext=[
+
+                    "ORF",
+
+                    "Motif",
+
+                    "EcoRI",
+
+                    "BamHI",
+
+                    "HindIII",
+
+                    "NotI"
+
+                ],
+
+                showgrid=True,
+
+                autorange="reversed"
+
+            )
+
+            st.plotly_chart(
+
+                fig,
+
+                width="stretch",
+                key=f"genome_browser_{unique_key}",
+                config={
+
+                    "displaylogo": False,
+
+                    "scrollZoom": True,
+
+                    "modeBarButtonsToAdd":[
+
+                        "zoom2d",
+
+                        "pan2d",
+
+                        "select2d",
+
+                        "lasso2d",
+
+                        "zoomIn2d",
+
+                        "zoomOut2d",
+
+                        "resetScale2d"
+
+                    ]
+
+                }
+
+            )
+def show_pairwise_alignment(alignment):
+
+    st.subheader("🧬 Pairwise Sequence Alignment")
+
+    st.metric(
+        "Alignment Score",
+        round(alignment.score,2)
+    )
+
+    st.code(str(alignment))
+def show_msa_alignment(alignment):
+
+    st.subheader(
+        "🧬 Multiple Sequence Alignment"
+    )
+
+    # ---------------------------------
+    # Alignment statistics
+    # ---------------------------------
+
+    num_sequences = len(alignment)
+
+    alignment_length = alignment.get_alignment_length()
+
+    col1, col2 = st.columns(2)
+
+    with col1:
+
+        st.metric(
+            "Sequences",
+            num_sequences
+        )
+
+    with col2:
+
+        st.metric(
+            "Alignment Length",
+            f"{alignment_length} bp"
+        )
+
+    st.divider()
+
+    # ---------------------------------
+    # Display alignment
+    # ---------------------------------
+
+    st.subheader(
+        "Aligned Sequences"
+    )
+
+    for record in alignment:
+
+        st.markdown(
+            f"**{record.id}**"
+        )
+
+        st.code(
+            str(record.seq),
+            language="text"
+        )
+
+    # ---------------------------------
+    # Download aligned FASTA
+    # ---------------------------------
+
+    from io import StringIO
+    from Bio import AlignIO
+
+    output = StringIO()
+
+    AlignIO.write(
+        alignment,
+        output,
+        "fasta"
+    )
+
+    aligned_fasta = output.getvalue()
+
+    st.download_button(
+        "📥 Download Aligned FASTA",
+        aligned_fasta,
+        file_name="aligned_sequences.fasta",
+        mime="text/plain"
+    )
